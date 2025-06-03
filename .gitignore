@@ -1,0 +1,12 @@
+# Node dependencies
+node_modules/
+
+# Prisma generated client and migrations
+prisma/migrations/
+node_modules/.prisma/
+
+# Build output
+dist/
+
+# Environment variables
+.env

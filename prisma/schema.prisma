@@ -1,0 +1,60 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider      = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  password  String
+  firstName      String
+  lastName      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+   // Challenges this user created
+  createdChallenges Challenge[]      @relation("ChallengeCreator")
+
+  // Challenges this user has joined
+  participations     ChallengeEnrollment[]
+  // ...additional fields...
+}
+
+model Challenge {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  image      String?
+  startDate   DateTime
+  endDate     DateTime
+  // Who created it
+  creator      User                     @relation("ChallengeCreator", fields: [creatorId], references: [id])
+  creatorId    Int
+
+  // Who’s in it
+  participants ChallengeEnrollment[]
+
+  createdAt    DateTime     @default(now())
+}
+
+model ChallengeEnrollment {
+  id           Int          @id @default(autoincrement())
+  user         User         @relation(fields: [userId], references: [id])
+  userId       Int
+  challenge    Challenge    @relation(fields: [challengeId], references: [id])
+  challengeId  Int
+
+  joinedAt     DateTime     @default(now())
+  progress     Float?       // e.g. percent complete
+
+  @@unique([userId, challengeId])
+}
