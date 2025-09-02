@@ -21,12 +21,12 @@ model User {
   lastName      String
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
-   // Challenges this user created
+   // Challenges this user created // One-to-many relationship
   createdChallenges Challenge[]      @relation("ChallengeCreator")
-
-  // Challenges this user has joined
+  // Challenges this user has joined// One-to-many relationship
   participations     ChallengeEnrollment[]
-  // ...additional fields...
+  // Workout plans created by this user //One-to-many relationship
+  workoutPlans       WorkoutPlan[] 
 }
 
 model Challenge {
@@ -40,7 +40,7 @@ model Challenge {
   creator      User                     @relation("ChallengeCreator", fields: [creatorId], references: [id])
   creatorId    Int
 
-  // Who’s in it
+  // Who’s in it // One-to-many relationship
   participants ChallengeEnrollment[]
 
   createdAt    DateTime     @default(now())
@@ -57,4 +57,36 @@ model ChallengeEnrollment {
   progress     Float?       // e.g. percent complete
 
   @@unique([userId, challengeId])
+}
+
+model WorkoutPlan {
+  id Int @id @default(autoincrement())
+  title String
+  userId Int
+  user User @relation(fields : [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workoutSplits WorkoutSplit[]
+  @@index([userId])
+}
+
+model WorkoutSplit {
+  id Int @id @default(autoincrement())
+  planId Int 
+  plan WorkoutPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  workoutSplitName String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  exercises Exercises[]
+  @@index([planId])
+}
+
+model Exercises {
+  id Int @id @default(autoincrement())
+  exerciseName String
+  sets Int
+  splitId Int
+  split WorkoutSplit @relation(fields: [splitId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

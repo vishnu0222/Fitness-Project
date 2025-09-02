@@ -4,7 +4,6 @@ import { createChallengeDto } from './dto/create-challenge.dto';
 import { last } from 'rxjs';
 import { PaginationDto } from 'src/common/pagination/pagination.dto';
 import { updateChallengeDto } from './dto/update-challenge.dto';
-import { log } from 'console';
 import { updateParticipationDto } from './dto/update-participation.dto';
 
 
@@ -66,18 +65,16 @@ export class ChallengeService {
             if(!challenge) {
                 throw new Error('Challenge not found');
             }
-            console.log("test");
             const updatedChallenge = await this.prismaService.challenge.update({
                 where : {id : challengeId},
                 data : {
                     ...updateChallengeDto,
-                    image : file.filename,
+                    image : file? file.filename : '',
                 }
             })
             return { message: 'Challenge updated successfully', challenge: updatedChallenge };
         } catch (error) {
             throw new Error('Error updating challenge');
-            
         }
     }
 

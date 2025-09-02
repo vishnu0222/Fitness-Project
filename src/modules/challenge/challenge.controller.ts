@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
 import { ChallengeService } from './challenge.service';
 import { ImageUploadInterceptor } from 'src/common/interceptors/image-upload.interceptor';
 import { createChallengeDto } from './dto/create-challenge.dto';
-import { JwtGuard } from 'src/auth/guard/jwt.guard';
+import { JwtGuard } from 'src/modules/auth/guard/jwt.guard';
 import { PaginationDto } from 'src/common/pagination/pagination.dto';
 import { updateChallengeDto } from './dto/update-challenge.dto';
 import { User } from 'generated/prisma';

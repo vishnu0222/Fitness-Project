@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Put, Request, UseGuards } from '@nestjs/common';
-import { JwtGuard } from 'src/auth/guard/jwt.guard';
+import { JwtGuard } from 'src/modules/auth/guard/jwt.guard';
 import { UserService } from './user.service';
 import { editProfileDto } from './dto/editProfile.dto';
 
@@ -10,7 +10,10 @@ export class UserController {
 
     @Get('profile')
     getProfile(@Request() req:any) {
-        return req.user;
+        const {email, firstName, lastName} = req.user;
+        return {
+            email,firstName,lastName
+        };
     }
 
     @Put('EditProfile/:id')
