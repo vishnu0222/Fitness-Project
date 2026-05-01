@@ -12,10 +12,13 @@ import { ChatModule } from './modules/chat/chat.module';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
+import { OutboxModule } from './messaging/outbox/outbox.module';
+import { RabbitMqModule } from './messaging/rabbitmq/rabbitmq.module';
+
 
 
 @Module({
-  imports: [AuthModule, UserModule, ChallengeModule, PrismaModule, ConfigModule.forRoot({isGlobal : true}),
+  imports: [AuthModule, UserModule, ChallengeModule, PrismaModule, OutboxModule, RabbitMqModule, ConfigModule.forRoot({isGlobal : true}),
     MulterModule.register({dest: './uploads', limits : {fileSize : 1024 * 1024 * 5}}),
     WorkoutModule, ChatModule,
     ThrottlerModule.forRoot([{

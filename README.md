@@ -100,6 +100,7 @@ ChallengeFit includes an AI assistant that uses **OpenAI server-side** with **to
   - email notifications
   - analytics/event tracking
 - Retry logic, durable queues, and processed-event tracking improve delivery reliability and reduce duplicate handling
+![](./RabbitMQ.png)
 
 ## Local Development
 

@@ -1,30 +1,58 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { createChallengeDto } from './dto/create-challenge.dto';
-import { last } from 'rxjs';
 import { PaginationDto } from 'src/common/pagination/pagination.dto';
 import { updateChallengeDto } from './dto/update-challenge.dto';
 import { updateParticipationDto } from './dto/update-participation.dto';
 import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { OutboxService } from 'src/messaging/outbox/outbox.service';
+import { EventNames } from 'src/messaging/events/event-names';
+
 
 
 @Injectable()
 export class ChallengeService {
-    constructor(private prismaService : PrismaService, @Inject(CACHE_MANAGER) private cacheManager: Cache) {}
+    constructor(private prismaService : PrismaService,
+         @Inject(CACHE_MANAGER) private cacheManager: Cache,
+        private outboxService: OutboxService
+        ) {}
 
-    async createChallenge(userId : number, createChallengeDto : createChallengeDto, file : Express.Multer.File) {
+    async createChallenge(userId: number, createChallengeDto: createChallengeDto, file: Express.Multer.File) {
         try {
-            const newChallenge = await this.prismaService.challenge.create({
-                data : {
+            //transaction to create challenge and queue event
+            //transaction basically is to run all the database operations inside this block as one unit,
+            //if any of the operation fails then all the operations will be rolled back to maintain data integrity
+            const newChallenge = await this.prismaService.$transaction(async (tx) => {
+                const created = await tx.challenge.create({
+                    data: {
                     ...createChallengeDto,
-                    image : file.filename,
-                    creator: { connect: { id: userId } } // Assuming userId is the ID of the creator
-                }
-            })
+                    image: file?.filename ?? null,
+                    creator: { connect: { id: userId } },
+                    },
+            });
+                // queue event in outbox table to be later picked by worker and published to rabbitmq
+                await this.outboxService.queueEvent(tx, {
+                    eventName: EventNames.ChallengeCreated,
+                    routingKey: EventNames.ChallengeCreated,
+                    payload: {
+                    challengeId: created.id,
+                    creatorId: userId,
+                    title: created.title,
+                    description: created.description,
+                    image: created.image,
+                    startDate: created.startDate.toISOString(),
+                    endDate: created.endDate.toISOString(),
+                    },
+                });
+
+                return created;
+            });
+
             return { message: 'Challenge created successfully', challenge: newChallenge };
-        } catch (error) {
-            throw new Error('Error creating challenge');
+        } 
+        catch (error) {
+            throw new Error('Error creating challenge', error);
         }
     }
 
@@ -68,119 +96,174 @@ export class ChallengeService {
         return allChallenges;
       }
 
-    async updateChallenge(challengeId:number, updateChallengeDto : updateChallengeDto, file : Express.Multer.File) { 
+    async updateChallenge(challengeId: number, updateChallengeDto: updateChallengeDto, file: Express.Multer.File) {
         try {
             const challenge = await this.prismaService.challenge.findUnique({
-                where : {
-                    id : challengeId,
-                }
-            })
-            
-            if(!challenge) {
-                throw new Error('Challenge not found');
+                where: { id: challengeId },
+            });
+
+            if (!challenge) {
+            throw new Error('Challenge not found');
             }
-            const updatedChallenge = await this.prismaService.challenge.update({
-                where : {id : challengeId},
-                data : {
-                    ...updateChallengeDto,
-                    image : file? file.filename : challenge.image,
-                }
-            })
+
+            const updatedChallenge = await this.prismaService.$transaction(async (tx) => {
+            const updated = await tx.challenge.update({
+                where: { id: challengeId },
+                data: {
+                ...updateChallengeDto,
+                image: file ? file.filename : challenge.image,
+                },
+            });
+
+            await this.outboxService.queueEvent(tx, {
+                eventName: EventNames.ChallengeUpdated,
+                routingKey: EventNames.ChallengeUpdated,
+                payload: {
+                challengeId: updated.id,
+                title: updated.title,
+                updatedFields: Object.keys(updateChallengeDto),
+                },
+            });
+
+            return updated;
+            });
+
             return { message: 'Challenge updated successfully', challenge: updatedChallenge };
-        } catch (error) {
+        } catch {
             throw new Error('Error updating challenge');
         }
     }
 
-    async deleteChallenge(challengeId : number) {
-        const challenge = await this.prismaService.challenge.findUnique({
-            where : {
-                id : challengeId,
-            }
-        })
-        if (!challenge) {
+    async deleteChallenge(challengeId: number) {
+        const deletedTitle = await this.prismaService.$transaction(async (tx) => {
+            const challenge = await tx.challenge.findUnique({
+            where: { id: challengeId },
+            include: {
+                creator: {
+                select: { email: true, firstName: true, lastName: true },
+                },
+                participants: {
+                select: {
+                    user: {
+                    select: { email: true, firstName: true, lastName: true },
+                    },
+                },
+                },
+            },
+            });
+
+            if (!challenge) {
             throw new Error('Challenge not found');
-        }
-        const challengeTitle = challenge.title;
-        await this.prismaService.challenge.delete({
-            where : {
-                id : challengeId
             }
-        })
-        return { message: `Challenge '${challengeTitle}' deleted successfully`};
+
+            await tx.challenge.delete({
+            where: { id: challengeId },
+            });
+
+            await this.outboxService.queueEvent(tx, {
+            eventName: EventNames.ChallengeDeleted,
+            routingKey: EventNames.ChallengeDeleted,
+            payload: {
+                challengeId,
+                title: challenge.title,
+                recipients: [
+                {
+                    email: challenge.creator.email,
+                    firstName: challenge.creator.firstName,
+                    lastName: challenge.creator.lastName,
+                },
+                ...challenge.participants.map((p) => ({
+                    email: p.user.email,
+                    firstName: p.user.firstName,
+                    lastName: p.user.lastName,
+                })),
+                ],
+            },
+            });
+
+            return challenge.title;
+        });
+
+        return { message: `Challenge '${deletedTitle}' deleted successfully` };
     }
 
-    async joinChallenge(userId : number, challengeId : number) {
+    async joinChallenge(userId: number, challengeId: number) {
         const user = await this.prismaService.user.findUnique({
-            where : {
-                id : userId,
-            }
-        })
-        if (!user) {
-            throw new Error('User not found');
-        }
+            where: { id: userId },
+        });
+        if (!user) throw new Error('User not found');
+
         const challenge = await this.prismaService.challenge.findUnique({
-            where : {
-                id : challengeId,
-            }
-        })
+            where: { id: challengeId },
+        });
         if (!challenge) {
             throw new Error('Challenge not found');
         }
+
         const participantExists = await this.prismaService.challengeEnrollment.findFirst({
-            where : {
-                userId: userId,
-                challengeId: challengeId,
-            }
-        })
-        if(participantExists) {
-            // return { message: 'You have already joined the challenge',participantExists: participantExists };
-            throw new BadRequestException('You have already joined this challenge');
+            where: { userId, challengeId },
+        });
+        if (participantExists) {
+            throw new Error('You have already joined this challenge');
         }
-        const participation = await this.prismaService.challengeEnrollment.create({
-            data : {
+
+        const participation = await this.prismaService.$transaction(async (tx) => {
+            const created = await tx.challengeEnrollment.create({
+            data: {
                 user: { connect: { id: userId } },
                 challenge: { connect: { id: challengeId } },
-            }
-        })
+            },
+            });
+
+            await this.outboxService.queueEvent(tx, {
+            eventName: EventNames.ChallengeJoined,
+            routingKey: EventNames.ChallengeJoined,
+            payload: {
+                challengeId,
+                userId,
+                challengeTitle: challenge.title,
+            },
+            });
+
+            return created;
+        });
+
         return { message: 'Participation created successfully', participation };
     }
-    async leaveChallenge(userId : number, challengeId : number){
-        const user = await this.prismaService.user.findUnique({
-            where : {
-                id : userId,
-            }
-        })
-        if (!user) {
-            throw new Error('User not found');
-        }
+    async leaveChallenge(userId: number, challengeId: number) {
         const challenge = await this.prismaService.challenge.findUnique({
-            where : {
-                id : challengeId,
-            }
-        })
-        if (!challenge) {
-            throw new Error('Challenge not found');
-        }
+            where: { id: challengeId },
+        });
+        if (!challenge) throw new Error('Challenge not found');
+
         const participantExists = await this.prismaService.challengeEnrollment.findUnique({
-            where : {
-                userId_challengeId: {
-                    challengeId : challengeId,
-                    userId : userId,
-                }
-            }
-        }) 
-        if(!participantExists) {
+            where: {
+            userId_challengeId: { challengeId, userId },
+            },
+        });
+
+        if (!participantExists) {
             throw new BadRequestException('You have not joined this challenge');
         }
-        await this.prismaService.challengeEnrollment.delete({
-            where : {
-                userId_challengeId: {
-                    challengeId : challengeId,
-                    userId : userId,
-                }
-            }
-        })
+
+        await this.prismaService.$transaction(async (tx) => {
+            await tx.challengeEnrollment.delete({
+            where: {
+                userId_challengeId: { challengeId, userId },
+            },
+            });
+
+            await this.outboxService.queueEvent(tx, {
+            eventName: EventNames.ChallengeLeft,
+            routingKey: EventNames.ChallengeLeft,
+            payload: {
+                challengeId,
+                userId,
+                challengeTitle: challenge.title,
+            },
+            });
+        });
+
         return { message: 'Participation deleted successfully' };
     }
 
