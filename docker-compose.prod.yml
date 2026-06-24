@@ -1,0 +1,98 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fitness-platform-api:latest
+    container_name: fitness_api
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env.production}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-fitness}:${POSTGRES_PASSWORD:-fitness_password}@postgres:5432/${POSTGRES_DB:-fitness}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-fitness}:${RABBITMQ_DEFAULT_PASS:-fitness_password}@rabbitmq:5672
+    ports:
+      - '3000:3000'
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+
+  worker:
+    image: fitness-platform-api:latest
+    container_name: fitness_worker
+    restart: unless-stopped
+    env_file:
+      - ${ENV_FILE:-.env.production}
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-fitness}:${POSTGRES_PASSWORD:-fitness_password}@postgres:5432/${POSTGRES_DB:-fitness}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-fitness}:${RABBITMQ_DEFAULT_PASS:-fitness_password}@rabbitmq:5672
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      api:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: node dist/worker.js
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: fitness_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fitness}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fitness_password}
+      POSTGRES_DB: ${POSTGRES_DB:-fitness}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: fitness_redis
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no --maxmemory 96mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: fitness_rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-fitness}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-fitness_password}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+volumes:
+  postgres_data:
+  rabbitmq_data:
+  uploads_data:

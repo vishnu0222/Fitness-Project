@@ -5,7 +5,6 @@ import { createChallengeDto } from './dto/create-challenge.dto';
 import { JwtGuard } from 'src/modules/auth/guard/jwt.guard';
 import { PaginationDto } from 'src/common/pagination/pagination.dto';
 import { updateChallengeDto } from './dto/update-challenge.dto';
-import { User } from 'generated/prisma';
 import { updateParticipationDto } from './dto/update-participation.dto';
 import { Throttle } from '@nestjs/throttler';
 

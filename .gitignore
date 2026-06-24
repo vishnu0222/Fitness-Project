@@ -1,8 +1,7 @@
 # Node dependencies
 node_modules/
 
-# Prisma generated client and migrations
-prisma/migrations/
+# Prisma generated client
 node_modules/.prisma/
 
 # Build output
@@ -10,3 +9,8 @@ dist/
 
 # Environment variables
 .env
+.env.*
+!.env.*.example
+
+# OpenCode configuration (project-specific, should not commit)
+.opencode/
